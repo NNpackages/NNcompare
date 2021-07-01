@@ -1,0 +1,216 @@
+---
+title: "Output parallel programming"
+author: "Mette Dahl Bendtsen"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Output parallel programming}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+options(knitr.duplicate.label = "allow")
+```
+
+## Setup training data base
+In case you have not already setup a training database please run
+```{r}
+NNtraining::createTrainingDB()
+```
+Assuming that you work on the R-server, this will copy the training data sets 
+from the NNtraining package into your home directory in a sub folder called 
+"training". If the files already exists, nothing will happen. The training 
+folder can then be used to read/write from, as if it was a real trial folder on 
+the p-drive.
+
+## Introduction
+The NNcompare package can support the parallel review process when the parallel 
+program is written in R. 
+The `comparedf()` function from the arsenal package can be used to compare two 
+data frames, and the `export()` function in the NNcompare package
+can be used to export a summary report of the 
+comparison in various formats (HTML, Word, PDF, and github).
+
+This vignette gives examples of how to use the NNcompare package in a parallel 
+review process.
+
+## Example 1: Adverse events by SOC/PT 
+A snippet of the table that should be parallel reviewed is shown here - it is a 
+more or less standard adverse events table showing AEs by treatment, system 
+organ class and preferred term:
+```{r, echo=FALSE, out.width="100%"}
+knitr::include_graphics("taesocpt.png")
+```
+
+
+The following code shows how to access data on data, and how a parallel 
+program for the Adverse events by SOC/PT could look like. The program is 
+structured in the following way:
+1. Access training data 
+2. Create the parallel programmed data set to compare to the output data set
+3. Use the `comparedf()` function to compare the two data sets
+4. Use the `export()` function to export the results of the 
+comparison to a validation report 
+```{r package}
+library(NNBiostat)
+library(NNcompare)
+#library(arsenal)
+
+# access to adam data and output datasets
+# normally it is not necessary to specify the root argument
+db <- nnaccess("4321", root = "~/training")
+
+# NOTE that the argument root should not be used when using projstat
+# e.g. db <- nnaccess(trial = "nn8640-exploratory", instance = "otgoa001", 
+#                     project = "nn8640")
+
+
+# read adsl and adae data sets
+adsl <- db$adam("adsl")
+adae <- db$adam("adae")
+
+
+# subset adsl - trial nn4654-4321, safety analysis set
+# calculate treatment duration
+adsl_f <-  adsl %>%
+  filter(saffl == "Y" & studyid == "nn4654-4321" ) %>%
+  mutate(trtdury = as.numeric(eotdt - randdt)/365.25)
+
+
+# subset adae - trial nn4654-4321, safety analysis set, treatment emergent AEs
+# join with adsl to add by subject treatment duration
+adae_f <- adae %>%
+  filter(saffl == "Y" & trtemfl == "Y" & studyid == "nn4654-4321") %>%
+  left_join(select(adsl_f, c("trtdury", "usubjid")), by = "usubjid")
+
+# duplicate rows to create "total" rows
+adae_dup <- adae_f %>%
+  mutate(trta = "total", trtan = 9999)
+adsl_dup <- adsl_f %>%
+  mutate(trta = "total", trtan = 9999)
+
+adae_tot <- rbind(adae_f, adae_dup)
+adsl_tot <- rbind(adsl_f, adsl_dup)
+
+# calculate E, N by treatment, PT and SOC (aebodsys, aedecod)
+adae_aedecod <- adae_tot %>%
+  group_by(aebodsys, aedecod, trta) %>%
+  summarise(E = n(),
+            N = n_distinct(subjid),
+            dur = sum(trtdury))
+
+# calculate E, N by treatment, and PT (aebodsys)
+adae_aebodsys <- adae_tot %>%
+  group_by(aebodsys, trta) %>%
+  summarise(E = n(),
+            N = n_distinct(subjid),
+            dur = sum(trtdury)) %>%
+  mutate(aedecod = "")
+
+
+# append adae tables
+adae_sum <- rbind(adae_aedecod, adae_aebodsys) %>%
+  mutate(aebodsys = ifelse(is.na(aebodsys), "", aebodsys))
+
+# calculate E, N, and treatment duration by treatment
+adsl_trt <- adsl_tot %>%
+  group_by(trta) %>%
+  summarise(E = n(),
+            totN = n_distinct(subjid),
+            totdur = sum(trtdury))
+
+# join by treatment N and duration on adae and calculate P and R
+taesocpt_parp <- left_join(adae_sum, select(adsl_trt, c("trta", "totdur", "totN")), 
+                              by = "trta") %>%
+  mutate(P = 100 * N / totN, R = 100 * E / totdur)
+
+# Read SAS dataset to compare
+taesocpt <- db$output_datasets("taesocpt")
+ 
+# run the export compare function - save in expected
+sumCompare <- summary(comparedf(taesocpt,taesocpt_parp, 
+       by = c("trta", "aebodsys", "aedecod"), int.as.num = TRUE, 
+       factor.as.char = TRUE))
+
+# run the export compare function
+export(x = sumCompare, type = "html", db = db, subfolder = "validation_reports", 
+       filename = "taesocptal_parp", deleteRmd = TRUE)
+```
+
+The report from the parallel program is by default placed in the "parprog" folder 
+(this can be changed by using the folder argument) and in this case in a 
+sub folder called "validation_reports".
+
+
+## Example 2: Most frequent (>=5%) adverse events by PT/SOC 
+A snippet of the table that should be parallel reviewed is shown here - it is an
+adverse events table showing 5% most frequent AEs by 
+treatment, system organ class and preferred term:
+
+```{r, echo=FALSE, out.width="100%"}
+knitr::include_graphics("taesocpt5.png")
+```
+
+
+The parallel program is a continuation of the program from example 1 and based on 
+the data set taesocpt_parp from that example. To adhere to the thoughts behind 
+trace each parallel program should correspond 1:1 to the output program in the 
+sense that there should be only one parallel program for each output program. 
+This means that the ´comparedf()´ function could be called several 
+times in one parallel program generating several reports for each parallel 
+program. We recommend that the reports are named according to the output names 
+with and "_parp" at the end and placed in a separate folder under the parprog 
+folder - e.g. "validation_reports".
+```{r}
+
+# filter taesocpt_parp to find SOCs where P>=5% for either of the treatments
+aedecod_5mostfreq <- taesocpt_parp %>%
+  ungroup() %>%
+  filter(P>=5 & trta %in%  c("old drug", "new drug") & aedecod != "") %>%
+  distinct(aedecod)
+
+# restrict to SOCs where P>=5% for either of the treatments
+taesocpt5_parp <- inner_join(taesocpt_parp, aedecod_5mostfreq, 
+                                     by = "aedecod") %>% 
+  select(c("aebodsys", "aedecod", "trta", "E", "N", "P", "R"))
+
+
+# Read SAS dataset to compare
+taesocpt5 <- db$output_datasets("taesocpt5") %>% 
+  filter(aedecod != "") %>% 
+  select(c("aebodsys", "aedecod", "trta", "E", "N", "P", "R"))
+
+# run the export compare function - save in expected
+sumCompare <- summary(comparedf(taesocpt5,taesocpt5_parp, 
+                                by = c("trta", "aebodsys", "aedecod"), 
+                                int.as.num = TRUE, factor.as.char = TRUE))
+# run the export compare function
+export(x = sumCompare, type = "html", db = db, subfolder = "validation_reports", 
+       filename = "taesocpt5_parp", deleteRmd = TRUE)
+```
+
+## Summary of comparisons
+For each comparison of data sets the `export()` function exports both a summary
+report as described in the two examples above, and also a short summary file 
+which is placed together with the summary report. The short summary report 
+contains a summary of the differences found: "false" indicates that no 
+differences were found, and "true" that differences exist in 
+"Number of columns", "Number of rows", and / or "Compared values".
+To provide overview of all comparisons done in a given instance these short 
+summary files can be combined by using the `combineDFcomp()` function, which 
+concatenates the short summary files into one HTML overview file.
+
+```{r}
+path <- "~/training/nn1234/nn1234-4321/current/stats/program/parprog/validation_reports"
+
+# prepare overall summary report of short summary files
+combined_summary <- combineDFComp(path = path, filename = "combined_summary")
+```
+
+The last column in the HTML overview file contains a link to the 
+detailed summary report for the parallel program in scope.

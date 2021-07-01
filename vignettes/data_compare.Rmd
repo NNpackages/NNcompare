@@ -1,0 +1,111 @@
+---
+title: "Compare datasets"
+author: "Claus Dethlefsen (CDN)"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Compare datasets}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+options(knitr.duplicate.label = "allow")
+```
+
+## Setup training data base
+In case you have not already setup a training database please run
+```{r}
+NNtraining::createTrainingDB()
+```
+Assuming that you work on the R-server, this will copy the training datasets from the `NNtraining` package into your home-directory in a subfolder called `training`. If the files already exists, nothing will happen. The training folder can then be used to read/write from, as if it was a real trial folder on the p-drive.
+
+
+## Compare datasets
+
+Imagine that in a trial, you want to compare all datasets at two occasions. Interest is in detecting exactly what has changed, e.g. when getting close to the Database Lock.
+
+Here, we will emulate changed datasets and keep the comparison dataset in memory. If datasets were to be compared between locations, a non-standard location, could be added to the `nnaccess`-object using the function `sasaccess`.
+```{r Simulate change in datasets, include=FALSE}
+library(NNBiostat)
+mytrial <- nnaccess("0001", root="~/training")
+
+#This is how a different version could be added as folder. Not used in the example.
+mytrial$dm_external <- sasaccess("~/training/nn1234/nn1234-0001/dm/data/external_data")
+
+# retrieve names of all adam datasets
+alladam <- mytrial$adam()
+
+# Here, we will only pick a few
+alladam <- alladam[c(11,18,21)]
+
+## read adsl and make some modifications, emulating that something has changed between two versions
+adsl.modified <- mytrial$adam("adsl") %>% 
+    filter(SUBJID != "128001") %>% # oops, we forgot a subject
+    mutate(COUNTRY = recode(COUNTRY, "USA"="US"))  # oops, wrote US instaed of USA
+
+## read adlb and make some modifications
+adlb.modified <- mytrial$adam("adlb") %>%
+  mutate(AVAL = ifelse(AVAL<1, .5, AVAL))  # AVAL wrong value
+
+## read advs, but leave it unchanged.  
+advs.modified <- mytrial$adam("advs") # no change
+
+```
+
+
+```{r sdtm}
+library(NNBiostat)
+library(NNcompare)
+mytrial <- nnaccess("0001", root="~/training")
+
+all <- mytrial$adam()
+all <- all[c(11,18,21)] # to simplify, we just pick 3 datasets in this vignette
+
+## we could use a for-loop to compare all files. However, since we have kept the
+## modified datasets as objects in memory, we will do the comparison "by hand"
+#for (domain in all) {
+#
+#    cat("Parsing:",domain,"\n")
+#    d.new <- mytrial$adam(domain, ext="derived")
+#    #d.old <- mytrial$dm_external(paste0("2021_01_21/", domain), ext="derived")
+#
+#    compare <- comparedf(d.new,d.old)
+#    compare.sum <- summary(compare)
+#
+#    export(x=compare.sum,db=mytrial,type='html', filename = tools::file_path_sans_ext(domain),
+#           subfolder="compare_data")
+#}
+
+adsl <- mytrial$adam("adsl")
+compare.adsl <- comparedf( adsl, adsl.modified, by="USUBJID")
+compare.adsl.sum <- summary(compare.adsl)
+export(x=compare.adsl.sum, db=mytrial, type='html', filename = "adsl", subfolder="compare_data")
+
+adlb <- mytrial$adam("adlb")
+compare.adlb <- comparedf( adlb, adlb.modified, by=c("USUBJID","PARAM","VISITNUM","ATPTN","ASEQ"))
+compare.adlb.sum <- summary(compare.adlb)
+export(x=compare.adlb.sum, db=mytrial, type='html', filename = "adlb", subfolder="compare_data")
+
+# advs <- mytrial$adam("advs")
+# compare.advs <- comparedf( advs, advs.modified, by="USUBJID")
+# compare.advs.sum <- summary(compare.advs)
+# export(x=compare.advs.sum, db=mytrial, type='html', filename = "advs", subfolder="compare_data")
+
+```
+The default location of the outputs are in the program/parprog subfolder of the instance. In this case, the outputs are redirected to a subfolder of this called `compare_data`.
+
+To summarise the summaries,
+```{r summary}
+path <- paste0(attr(mytrial,"nninst")$paths$program,"/parprog/compare_data")
+file <- "overall_summary"
+
+# prepare overall summary report of short summary files
+combined_summary <- combineDFComp(path = path, filename = file)
+```
+This creates an html-file with a row for each comparison and a hyperlink to the detailed report created.
+

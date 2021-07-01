@@ -1,0 +1,42 @@
+Package: NNcompare
+Type: Package
+Title: Compare Data Frames and png files In R
+Version: 0.1.13
+Authors@R: 
+    c(person(given = "Mette Dahl",
+             family = "Bendtsen",
+             role = c("aut", "cre"),
+             email = "mzdb@novonordisk.com"),
+      person(given = "Frederik Vandvig",
+             family = "Heinen",
+             role = "aut"),
+      person(given = "Steffen Falgreen",
+             family = "Larsen",
+             role = "aut"),
+      person(given = "Claus",
+             family = "Dethlefsen",
+             role = "aut"))
+Description: The package consists of tools that make comparisons of data.frames 
+  possible in R in a similar manner as proc compare in SAS. It also contains functions for 
+  comparing png files.
+License: MIT + file LICENSE
+URL: http://10.59.86.7/NNpackages/NNcompare/,
+        https://novonordiskit.visualstudio.com/BOS/_git/NNcompare
+BugReports: https://novonordiskit.visualstudio.com/BOS/_boards/board/t/NNcompare/Stories
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.1.1
+VignetteBuilder: knitr
+Depends: R (>= 3.5.0)
+Imports: knitr, utils (>= 3.2.0), tools, rmarkdown, magrittr, tibble,
+        dplyr, png, grDevices, DT, data.table, htmltools, rstudioapi,
+        labelled, arsenal, NNaccess, NNexport
+Suggests: testthat, NNBiostat, haven, NNtraining
+NeedsCompilation: no
+Packaged: 2021-01-21 07:43:21 UTC; vstsagent
+Author: Mette Dahl Bendtsen [aut, cre],
+  Frederik Vandvig Heinen [aut],
+  Steffen Falgreen Larsen [aut],
+  Claus Dethlefsen [aut]
+Maintainer: Mette Dahl Bendtsen <mzdb@novonordisk.com>
+Repository: RSPM
